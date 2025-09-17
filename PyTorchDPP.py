@@ -1,3 +1,6 @@
+#Mainly sourced from https://github.com/pytorch/examples/blob/main/distributed/ddp-tutorial-series/multigpu.py
+#Modifications were made such as using gloo instead of nccl since we only have 1 gpu. 
+
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
