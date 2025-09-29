@@ -1,0 +1,7 @@
+cloudComputing
+data
+__pycache__
+runs
+model
+.env
+*.sh
