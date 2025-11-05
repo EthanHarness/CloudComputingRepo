@@ -5,19 +5,17 @@ sys.path.append('/home/emh190004')
 from CloudComputingRepo.MainScripts import Imagenet1kDataset as ds
 
 class Inference:
-    def runValidations(self, modelType, model, sz, gpuLoc, batch_size):
-        if sz == -1: sz = None
-        validation_set = ds.CustomImageNet1000("validation", sz)
+    def runValidations(self, modelType, model, validation_data, gpuLoc):
 
         if modelType == "deepspeed": path = "../model/snapshot_DeepSpeed.pt"
         elif modelType == "pytorch": path = "../model/snapshot_PyTorchDDP.pt"
         else: path = ""
         
-        if modelType == "pytorch" or modelType == "pt":
-            validation_set = preparePyTorchDataloader(validation_set, batch_size)
+        if modelType == "pytorch":
+            #Need to pass in batch_size somehow for this case. Not currently working or used though
+            validation_data = preparePyTorchDataloader(validation_data, batch_size)
 
         if path != "":
-            print("Inferencing from file")
 
             if isinstance(gpuLoc, int): map_loc = torch.device(f"cuda:{gpuLoc}")
             elif isinstance(gpuLoc, str): map_loc = torch.device(gpuLoc)
@@ -42,29 +40,31 @@ class Inference:
                 new_state_dict = state_dict
 
             model.load_state_dict(new_state_dict, strict=False)
-        
-        else: print("Inferencing from model directly")
 
         model.eval()
 
         dev = torch.device(f"cuda:{gpuLoc}") if isinstance(gpuLoc, int) else torch.device(gpuLoc) if isinstance(gpuLoc, str) else gpuLoc
 
         with torch.no_grad():
-            for source, targets in validation_set:
-                source = source.to(dev)
-                output = model(source)
-                print(output, targets)
+            numberOfImages = 0
+            correct_predictions = 0
+            for batch_idx, (images, labels) in enumerate(validation_data):
+                images = images.to(dev)
+                labels = labels.to(dev)
+                output = model(images)
+                prediction = torch.argmax(output, dim=1)
+                numberOfImages += labels.size(0)
+                correct_predictions += (prediction == labels).sum().item()
+        print(f"Inference Complete: [{dev}] ({correct_predictions}/{numberOfImages} or {correct_predictions/numberOfImages})")
 
         if path == "":
             model.train()
             
 def preparePyTorchDataloader(data, batch_size):
-    from torch.utils.data.distributed import DistributedSampler
     from torch.utils.data import DataLoader
     return DataLoader(
         data,
         batch_size=batch_size,
         pin_memory=True,
-        shuffle=False,
-        sampler=DistributedSampler(dataset)
+        shuffle=False
     )

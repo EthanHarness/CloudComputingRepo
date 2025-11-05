@@ -9,9 +9,15 @@ from dotenv import load_dotenv
 class CustomImageNet1000(Dataset):
     def __init__(self, dataType, force_recache=False, size=None):
         self.dataType = dataType
+        if dataType == "train" and size is None:
+            self.length = 1281167
+        elif dataType == "validation" and size is None:
+            self.length = 50000
+        elif dataType == "test" and size is None:
+            self.length = 10000
+        else:
+            self.length = size
         splitString = f"{dataType}" if size is None else f"{dataType}[:{size}]"
-        self.dataList = load_dataset("ILSVRC/imagenet-1k", split=splitString, token=os.getenv("token"), cache_dir="~/scratch/hfCache")
-        self.length = len(self.dataList) if size is None else size
         self.transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor()
@@ -27,6 +33,8 @@ class CustomImageNet1000(Dataset):
             cache = torch.load(cache_path)
             return cache["image"], cache["label"]
 
+        splitString = f"{self.dataType}" if self.length is None else f"{self.dataType}[:{self.length}]"
+        self.dataList = load_dataset("ILSVRC/imagenet-1k", split=splitString, token=os.getenv("token"))
         item = self.dataList[idx]
         image = item["image"]
         label = item["label"]

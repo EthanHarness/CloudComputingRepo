@@ -19,7 +19,13 @@ from torchvision.transforms import transforms
 import sys
 
 sys.path.append('/home/emh190004')
-from CloudComputingRepo.MainScripts import Imagenet1kDataset as ds
+from CloudComputingRepo.MainScripts import CustomImageNet1000
+from CloudComputingRepo.MainScripts import Inference
+from CloudComputingRepo.MainScripts import PerformanceMonitor
+
+TRAIN_SIZE = 100
+VALIDATION_SIZE = 100
+PERFORMANCE_FLAG = True
 
 def deepspeedSetup(rank: int):
     deepspeed.init_distributed()
@@ -88,7 +94,7 @@ class DeepSpeedTrainer:
                 self._save_snapshot(epoch)
 
 def load_train_objs():
-    train_set = ds.CustomImageNet1000("train", True, 100)
+    train_set = CustomImageNet1000("train", False, 100)
     model = resnet101(num_classes=1000)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 

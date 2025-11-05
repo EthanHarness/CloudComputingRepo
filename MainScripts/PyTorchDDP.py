@@ -16,6 +16,12 @@ import sys
 sys.path.append('/home/emh190004')
 from CloudComputingRepo.MainScripts import CustomImageNet1000
 from CloudComputingRepo.MainScripts import Inference
+from CloudComputingRepo.MainScripts import PerformanceMonitor
+
+TRAIN_SIZE = 100
+VALIDATION_SIZE = 100
+PERFORMANCE_FLAG = True
+monitor = PerformanceMonitor("PyTorch")
 
 def ddp_setup(rank, world_size):
     os.environ["MASTER_ADDR"] = "localhost"
@@ -26,12 +32,12 @@ def ddp_setup(rank, world_size):
     pid = psutil.Process(os.getpid())
     print(f"Process {pid}")
 
-
 class PyTorchTrainer:
     def __init__(
         self,
         model: torch.nn.Module,
         train_data: DataLoader,
+        validation_data: DataLoader,
         optimizer: torch.optim.Optimizer,
         gpu_id: int,
         save_every: int,
@@ -41,6 +47,7 @@ class PyTorchTrainer:
         self.gpu_id = gpu_id
         self.model = model.to(gpu_id)
         self.train_data = train_data
+        self.validation_data = validation_data
         self.optimizer = optimizer
         self.save_every = save_every
         self.epochs_run = 0
@@ -50,8 +57,12 @@ class PyTorchTrainer:
             self._load_snapshot(snapshot_path)
 
         self.model = DDP(self.model, device_ids=[gpu_id])
-
-
+        
+        self.monitorCheck = PERFORMANCE_FLAG and self.gpu_id == 0
+    
+    def setMonitorStart(self):
+        if self.monitorCheck: monitor.setPerfStartTime()
+    
     def _load_snapshot(self, snapshot_path):
         loc = f"cuda:{self.gpu_id}"
         snapshot = torch.load(snapshot_path, map_location=loc)
@@ -67,13 +78,17 @@ class PyTorchTrainer:
         self.optimizer.step()
 
     def _run_epoch(self, epoch):
+        self.setMonitorStart()
+        
         b_sz = len(next(iter(self.train_data))[0])
-        print(f"[GPU{self.gpu_id}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_data)}")
         self.train_data.sampler.set_epoch(epoch)
         for source, targets in self.train_data:
             source = source.to(self.gpu_id)
             targets = targets.to(self.gpu_id)
             self._run_batch(source, targets)
+        
+        print(f"[GPU{self.gpu_id}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_data)}")
+        if (self.monitorCheck): monitor.printEpochRuntime(epoch)
 
     def _save_snapshot(self, epoch):
         snapshot = {
@@ -84,24 +99,27 @@ class PyTorchTrainer:
         print(f"Epoch {epoch} | Training snapshot saved at {self.snapshot_path}")
 
     def train(self, max_epochs: int):
+        if (self.monitorCheck): monitor.printTrainTimeStart()
+        
         for epoch in range(self.epochs_run, max_epochs):
             self._run_epoch(epoch)
-            VALIDATION_SIZE = 100
             if self.gpu_id == 0 and epoch % self.save_every == 0:
                 self._save_snapshot(epoch)
-                self.inf.runValidations("pytorch", self.model, VALIDATION_SIZE, self.gpu_id, self.train_data.batch_size)
-            elif self.gpu_id == 0:
-                self.inf.runValidations("pt", self.model, VALIDATION_SIZE, self.gpu_id, self.train_data.batch_size)
-
+            
+            self.setMonitorStart()
+            self.inf.runValidations("pt", self.model, self.validation_data, self.gpu_id)
+            if (self.monitorCheck): monitor.printValidationTime(epoch)
+        
+        if (self.monitorCheck): monitor.printTrainTimeEnd()
+    
 
 def load_train_objs():
-    TRAIN_SIZE = 100
-    train_set = CustomImageNet1000("train", True, TRAIN_SIZE)
+    train_set = CustomImageNet1000("train", False, TRAIN_SIZE)
+    valid_set = CustomImageNet1000("validation", False, VALIDATION_SIZE)
     model = resnet101(num_classes=train_set.getNumberOfClasses())
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-    return train_set, model, optimizer
-
+    return train_set, valid_set, model, optimizer
 
 def prepare_dataloader(dataset: Dataset, batch_size: int):
     return DataLoader(
@@ -114,12 +132,36 @@ def prepare_dataloader(dataset: Dataset, batch_size: int):
 
 
 def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_size: int, snapshot_path: str = "../model/"):
+    monitorCheck = PERFORMANCE_FLAG and rank==0
+    setMonitorStart = lambda: monitor.setPerfStartTime() if (monitorCheck) else None
+        
+    setMonitorStart()
     ddp_setup(rank, world_size)
-    dataset, model, optimizer = load_train_objs()
+    if (monitorCheck): monitor.printSetupTime()
+    
+    setMonitorStart()
+    dataset, validDataset, model, optimizer = load_train_objs()
+    if (monitorCheck): monitor.printLoadingTrainingTime()
+    
+    setMonitorStart()
     train_data = prepare_dataloader(dataset, batch_size)
+    if (monitorCheck): monitor.printCreatingTrainDataloaderTime()
+        
+    setMonitorStart()
+    validDataset = prepare_dataloader(validDataset, batch_size)
+    if (monitorCheck): monitor.printCreatingValidDataloaderTime()
+    
     snapshot_path += "snapshot_PyTorchDDP.pt"
-    trainer = PyTorchTrainer(model, train_data, optimizer, rank, save_every, snapshot_path)
+    
+    setMonitorStart()
+    trainer = PyTorchTrainer(model, train_data, validDataset, optimizer, rank, save_every, snapshot_path)
+    if (monitorCheck): monitor.printCreatingTrainingClass()
+        
+    setMonitorStart()
     trainer.train(total_epochs)
+    if (monitorCheck): monitor.printTotalTrainingTime()
+        
+    if (monitorCheck): monitor.printEndTime()
     destroy_process_group()
 
 
@@ -130,6 +172,8 @@ if __name__ == "__main__":
     parser.add_argument('save_every', type=int, help='How often to save a snapshot')
     parser.add_argument('--batch_size', default=1024, type=int, help='Input batch size on each device (default: 1024)')
     args = parser.parse_args()
+    
+    if (PERFORMANCE_FLAG): monitor.printStartTime()
 
     world_size = torch.cuda.device_count()
     mp.spawn(main, args=(world_size, args.save_every, args.total_epochs, args.batch_size), nprocs=world_size)
