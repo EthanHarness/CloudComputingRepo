@@ -89,9 +89,9 @@ class PyTorchTrainer:
             VALIDATION_SIZE = 100
             if self.gpu_id == 0 and epoch % self.save_every == 0:
                 self._save_snapshot(epoch)
-                self.inf.runValidations("pytorch", self.model, VALIDATION_SIZE, self.gpu_id)
+                self.inf.runValidations("pytorch", self.model, VALIDATION_SIZE, self.gpu_id, self.train_data.batch_size)
             elif self.gpu_id == 0:
-                self.inf.runValidations("", self.model, VALIDATION_SIZE, self.gpu_id)
+                self.inf.runValidations("pt", self.model, VALIDATION_SIZE, self.gpu_id, self.train_data.batch_size)
 
 
 def load_train_objs():

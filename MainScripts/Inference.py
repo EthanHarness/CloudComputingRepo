@@ -5,13 +5,16 @@ sys.path.append('/home/emh190004')
 from CloudComputingRepo.MainScripts import Imagenet1kDataset as ds
 
 class Inference:
-    def runValidations(self, modelType, model, sz, gpuLoc):
+    def runValidations(self, modelType, model, sz, gpuLoc, batch_size):
         if sz == -1: sz = None
         validation_set = ds.CustomImageNet1000("validation", sz)
 
         if modelType == "deepspeed": path = "../model/snapshot_DeepSpeed.pt"
         elif modelType == "pytorch": path = "../model/snapshot_PyTorchDDP.pt"
         else: path = ""
+        
+        if modelType == "pytorch" or modelType == "pt":
+            validation_set = preparePyTorchDataloader(validation_set, batch_size)
 
         if path != "":
             print("Inferencing from file")
@@ -54,3 +57,14 @@ class Inference:
 
         if path == "":
             model.train()
+            
+def preparePyTorchDataloader(data, batch_size):
+    from torch.utils.data.distributed import DistributedSampler
+    from torch.utils.data import DataLoader
+    return DataLoader(
+        data,
+        batch_size=batch_size,
+        pin_memory=True,
+        shuffle=False,
+        sampler=DistributedSampler(dataset)
+    )
