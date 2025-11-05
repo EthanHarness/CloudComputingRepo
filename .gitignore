@@ -3,4 +3,6 @@ data
 __pycache__
 runs
 model
+.env
 *.sh
+PyTorchDDP.[0-9]*
