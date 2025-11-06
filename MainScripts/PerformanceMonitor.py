@@ -11,8 +11,6 @@ class PerformanceMonitor:
     
     def printSetupTime(self): print(f"{self.startString}-SETUP-TIME: {self.getElapsedTime()}")
     def printLoadingTrainingTime(self): print(f"{self.startString}-LOADING-TRAINING-OBJECTS-TIME: {self.getElapsedTime()}")
-    def printCreatingTrainDataloaderTime(self): print(f"{self.startString}-CREATING-TRAINING-DATALOADER-TIME: {self.getElapsedTime()}")
-    def printCreatingValidDataloaderTime(self): print(f"{self.startString}-CREATING-VALIDATION-DATALOADER-TIME: {self.getElapsedTime()}")
     def printCreatingTrainingClass(self): print(f"{self.startString}-CREATING-TRAIN-OBJECT-TIME: {self.getElapsedTime()}")
     def printTotalTrainingTime(self): print(f"{self.startString}-TRAINING-TIME: {self.getElapsedTime()}")
     def printEpochRuntime(self, epoch): print(f"{self.startString}-TRAIN-EPOCH-{epoch}-TIME: {self.getElapsedTime()}")

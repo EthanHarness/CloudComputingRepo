@@ -31,23 +31,33 @@ def ddp_setup(rank, world_size):
 
     pid = psutil.Process(os.getpid())
     print(f"Process {pid}")
+    
+def prepare_dataloader(dataset: Dataset, batch_size: int):
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        pin_memory=True,
+        shuffle=False,
+        sampler=DistributedSampler(dataset)
+    )
 
 class PyTorchTrainer:
     def __init__(
         self,
         model: torch.nn.Module,
-        train_data: DataLoader,
-        validation_data: DataLoader,
+        train_data: Dataset,
+        validation_data: Dataset,
         optimizer: torch.optim.Optimizer,
         gpu_id: int,
         save_every: int,
         snapshot_path: str,
+        batch_size: int
     ) -> None:
         self.inf = Inference()
         self.gpu_id = gpu_id
         self.model = model.to(gpu_id)
-        self.train_data = train_data
-        self.validation_data = validation_data
+        self.train_data = prepare_dataloader(train_data, batch_size)
+        self.validation_data = validation_data(validation_data, batch_size)
         self.optimizer = optimizer
         self.save_every = save_every
         self.epochs_run = 0
@@ -121,20 +131,13 @@ def load_train_objs():
 
     return train_set, valid_set, model, optimizer
 
-def prepare_dataloader(dataset: Dataset, batch_size: int):
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        pin_memory=True,
-        shuffle=False,
-        sampler=DistributedSampler(dataset)
-    )
-
 
 def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_size: int, snapshot_path: str = "../model/"):
     monitorCheck = PERFORMANCE_FLAG and rank==0
     setMonitorStart = lambda: monitor.setPerfStartTime() if (monitorCheck) else None
-        
+    
+    if (monitorCheck): monitor.printStartTime()
+     
     setMonitorStart()
     ddp_setup(rank, world_size)
     if (monitorCheck): monitor.printSetupTime()
@@ -143,18 +146,10 @@ def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_s
     dataset, validDataset, model, optimizer = load_train_objs()
     if (monitorCheck): monitor.printLoadingTrainingTime()
     
-    setMonitorStart()
-    train_data = prepare_dataloader(dataset, batch_size)
-    if (monitorCheck): monitor.printCreatingTrainDataloaderTime()
-        
-    setMonitorStart()
-    validDataset = prepare_dataloader(validDataset, batch_size)
-    if (monitorCheck): monitor.printCreatingValidDataloaderTime()
-    
     snapshot_path += "snapshot_PyTorchDDP.pt"
     
     setMonitorStart()
-    trainer = PyTorchTrainer(model, train_data, validDataset, optimizer, rank, save_every, snapshot_path)
+    trainer = PyTorchTrainer(model, train_data, validDataset, optimizer, rank, save_every, snapshot_path, batch_size)
     if (monitorCheck): monitor.printCreatingTrainingClass()
         
     setMonitorStart()
@@ -172,8 +167,6 @@ if __name__ == "__main__":
     parser.add_argument('save_every', type=int, help='How often to save a snapshot')
     parser.add_argument('--batch_size', default=1024, type=int, help='Input batch size on each device (default: 1024)')
     args = parser.parse_args()
-    
-    if (PERFORMANCE_FLAG): monitor.printStartTime()
 
     world_size = torch.cuda.device_count()
     mp.spawn(main, args=(world_size, args.save_every, args.total_epochs, args.batch_size), nprocs=world_size)
