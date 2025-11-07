@@ -55,7 +55,7 @@ class Inference:
                 prediction = torch.argmax(output, dim=1)
                 numberOfImages += labels.size(0)
                 correct_predictions += (prediction == labels).sum().item()
-        print(f"Inference Complete: [{dev}] ({correct_predictions}/{numberOfImages} or {correct_predictions/numberOfImages})")
+        return torch.tensor([correct_predictions, numberOfImages])
 
         if path == "":
             model.train()

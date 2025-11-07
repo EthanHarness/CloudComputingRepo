@@ -1,10 +1,11 @@
 import torch
 import deepspeed
 from deepspeed.accelerator import get_accelerator
-import deepspeed.comm as dist
+import deepspeed.comm as log
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.distributed import DistributedSampler
+import torch.distributed as dist
 import os
 import psutil
 from torchvision.models import resnet101
@@ -18,6 +19,7 @@ from CloudComputingRepo.MainScripts import PerformanceMonitor
 TRAIN_SIZE = 100
 VALIDATION_SIZE = 100
 PERFORMANCE_FLAG = True
+ENABLE_SAVING = False
 monitor = PerformanceMonitor("DeepSpeed")
 
 def deepspeedSetup(rank: int):
@@ -95,6 +97,7 @@ class DeepSpeedTrainer:
         if (self.monitorCheck): monitor.printEpochRuntime(epoch)
 
     def _save_snapshot(self, epoch):
+        if not ENABLE_SAVING: return
         snapshot = {
             "MODEL_STATE": self.model.module.state_dict(),
             "EPOCHS_RUN": epoch,
@@ -111,8 +114,17 @@ class DeepSpeedTrainer:
                 self._save_snapshot(epoch)
                 
             self.setMonitorStart()
-            self.inf.runValidations("dp", self.model, self.validation_data, self.gpu_id)
+            outputTensor = self.inf.runValidations("dp", self.model, self.validation_data, self.gpu_id)
             if (self.monitorCheck): monitor.printValidationTime(epoch)
+            
+            outputTensor = outputTensor.to(f'cuda:{self.gpu_id}')
+            if self.gpu_id == 0:
+                gathered_data = [torch.zeros_like(outputTensor) for _ in range(dist.get_world_size())]
+                dist.gather(outputTensor, gather_list=gathered_data, dst=0)
+                gathered_data = torch.sum(torch.stack(gathered_data, dim=0), dim=0)
+                print(f"Inference Results: {gathered_data[0].item()}/{gathered_data[1].item()}={gathered_data[0].item()/gathered_data[1].item()}")
+            else:
+                dist.gather(outputTensor, dst=0)
             
         if (self.monitorCheck): monitor.printTrainTimeEnd()
 
@@ -160,10 +172,7 @@ def main():
             "contiguous_gradients": True
         },
         "train_batch_size": args.batch_size * world_size,
-        "train_micro_batch_size_per_gpu": args.batch_size,
-        "comms_logger": {
-            "enabled": False
-        }
+        "train_micro_batch_size_per_gpu": args.batch_size
     }
 
     modelEngine, optimizer, trainLoader, _ = deepspeed.initialize(
@@ -186,7 +195,7 @@ def main():
     if(monitorCheck): monitor.printTotalTrainingTime()
     
     if (monitorCheck): monitor.printEndTime()
-    dist.log_summary()
+    log.log_summary()
 
 
 if __name__ == "__main__":
