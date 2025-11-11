@@ -20,9 +20,10 @@ from CloudComputingRepo.MainScripts import Inference
 from CloudComputingRepo.MainScripts import PerformanceMonitor
 
 #TRAIN_SIZE = 131072
-TRAIN_SIZE = 400
+TRAIN_SIZE = 1000
 VALIDATION_SIZE = 100
 PERFORMANCE_FLAG = True
+MEMORY_PROFILING_FLAG = True
 ENABLE_SAVING = False
 monitor = PerformanceMonitor("PyTorch")
 
@@ -74,6 +75,7 @@ class PyTorchTrainer:
         self.model = DDP(self.model, device_ids=[gpu_id])
         
         self.monitorCheck = PERFORMANCE_FLAG and self.gpu_id == 0
+        self.profilingCheck = MEMORY_PROFILING_FLAG and self.gpu_id == 0
     
     def setMonitorStart(self):
         if self.monitorCheck: monitor.setPerfStartTime()
@@ -96,6 +98,7 @@ class PyTorchTrainer:
         self.setMonitorStart()
         
         b_sz = len(next(iter(self.train_data))[0])
+        print(f"[GPU{self.gpu_id}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_data)}")
         self.train_data.sampler.set_epoch(epoch)
         for batchIndex, (source, targets) in enumerate(self.train_data):
             source = source.to(self.gpu_id)
@@ -105,8 +108,7 @@ class PyTorchTrainer:
         
         if (self.monitorCheck): 
             monitor.printEpochRuntime(epoch)
-            if (self.monitorCheck): monitor.flushOutput()
-            print(f"[GPU{self.gpu_id}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_data)}")
+            monitor.flushOutput()
 
     def _save_snapshot(self, epoch):
         if not ENABLE_SAVING: return
@@ -124,27 +126,31 @@ class PyTorchTrainer:
             self._run_epoch(epoch)
             if self.gpu_id == 0 and epoch % self.save_every == 0:
                 self._save_snapshot(epoch)
-            
-            self.setMonitorStart()
-            outputTensor = self.inf.runValidations("pt", self.model, self.validation_data, self.gpu_id)
-            if (self.monitorCheck): monitor.printValidationTime(epoch)
-            
-            outputTensor = outputTensor.to(f'cuda:{self.gpu_id}')
-            if self.gpu_id == 0:
-                gathered_data = [torch.zeros_like(outputTensor) for _ in range(dist.get_world_size())]
-                dist.gather(outputTensor, gather_list=gathered_data, dst=0)
-                gathered_data = torch.sum(torch.stack(gathered_data, dim=0), dim=0)
-                print(f"Inference Results: {gathered_data[0].item()}/{gathered_data[1].item()}={gathered_data[0].item()/gathered_data[1].item()}")
-            else:
-                dist.gather(outputTensor, dst=0)
                 
-            if PERFORMANCE_FLAG: self.profiler.step()
+            if self.profilingCheck and epoch < monitor.getProfilerSteps(): self.profiler.step()
+            if self.profilingCheck and epoch == monitor.getProfilerSteps() - 1:
+                self.profiler.stop()
+                torch.cuda.synchronize()
+                monitor.exportMemory(self.profiler)
+                self.profiler = None
         
         if (self.monitorCheck): 
             monitor.printTrainTimeEnd()
             monitor.flushOutput()
-        if PERFORMANCE_FLAG: 
-            self.profiler.stop()
+            
+    def runValidations(self):
+        self.setMonitorStart()
+        outputTensor = self.inf.runValidations("pt", self.model, self.validation_data, self.gpu_id)
+        if (self.monitorCheck): monitor.printValidationTime(epoch)
+        outputTensor = outputTensor.to(f'cuda:{self.gpu_id}')
+        
+        if self.gpu_id == 0:
+            gathered_data = [torch.zeros_like(outputTensor) for _ in range(dist.get_world_size())]
+            dist.gather(outputTensor, gather_list=gathered_data, dst=0)
+            gathered_data = torch.sum(torch.stack(gathered_data, dim=0), dim=0)
+            print(f"Inference Results: {gathered_data[0].item()}/{gathered_data[1].item()}={gathered_data[0].item()/gathered_data[1].item()}")
+        else:
+            dist.gather(outputTensor, dst=0)
             
     
 
@@ -167,7 +173,7 @@ def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_s
     
     snapshot_path += "snapshot_PyTorchDDP.pt"
     profiler = None
-    if (PERFORMANCE_FLAG): profiler = monitor.createProfiler(rank)
+    if (MEMORY_PROFILING_FLAG): profiler = monitor.createProfiler(rank)
     trainer = PyTorchTrainer(model, dataset, validDataset, optimizer, rank, save_every, snapshot_path, batch_size, profiler)
         
     setMonitorStart()
@@ -175,8 +181,6 @@ def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_s
     if (monitorCheck): 
         monitor.printTotalTrainingTime()
         monitor.printEndTime()
-        torch.cuda.synchronize()
-        monitor.exportMemory(rank, profiler)
     destroy_process_group()
 
 
