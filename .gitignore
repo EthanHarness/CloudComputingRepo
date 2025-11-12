@@ -6,3 +6,6 @@ model
 .env
 *.sh
 PyTorchDDP.[0-9]*
+DeepSpeed.[0-9]*
+*.log
+Test.*

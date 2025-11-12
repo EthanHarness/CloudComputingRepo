@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 class CustomImageNet1000(Dataset):
     def __init__(self, dataType, force_recache=False, size=None):
         self.dataType = dataType
+        if size == -1: size = None
         if dataType == "train" and size is None:
             self.length = 1281167
         elif dataType == "validation" and size is None:

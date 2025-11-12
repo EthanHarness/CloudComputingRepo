@@ -3,10 +3,8 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import transforms
 import torch
 import os
-import sys
 
-sys.path.append('/home/emh190004')
-from CloudComputingRepo.MainScripts import Imagenet1kDataset as ds
+from ..MainScripts import Imagenet1kDataset as ds
 
 
 

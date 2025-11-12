@@ -1,8 +1,6 @@
 import torch
 from collections import OrderedDict
 import sys
-sys.path.append('/home/emh190004')
-from CloudComputingRepo.MainScripts import Imagenet1kDataset as ds
 
 class Inference:
     def runValidations(self, modelType, model, validation_data, gpuLoc):
@@ -55,7 +53,7 @@ class Inference:
                 prediction = torch.argmax(output, dim=1)
                 numberOfImages += labels.size(0)
                 correct_predictions += (prediction == labels).sum().item()
-        print(f"Inference Complete: [{dev}] ({correct_predictions}/{numberOfImages} or {correct_predictions/numberOfImages})")
+        return torch.tensor([correct_predictions, numberOfImages])
 
         if path == "":
             model.train()
