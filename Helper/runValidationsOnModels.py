@@ -21,20 +21,17 @@ inf = Inference.Inference()
 valid_set = Imagenet1kDataset.CustomImageNet1000("validation", False, -1)
 
 print("Loading Models Snapshots......")
-snapshotDeepSpeed = torch.load("./model/snapshot_DeepSpeed.pt", map_location=location)
-snapshotPyTorch = torch.load("./model/snapshot_PyTorchDDP.pt", map_location=location)
+snapshotDeepSpeed = torch.load("./model/snapshot_DeepSpeed.pt", map_location=location, weights_only=False)
+snapshotPyTorch = torch.load("./model/snapshot_PyTorchDDP.pt", map_location=location, weights_only=False)
 print("Model Snapshots Loaded")
+print(f"DeepSpeed Epoch: {snapshotDeepSpeed["EPOCH"]}")
+print(f"PyTorch Epoch: {snapshotPyTorch["EPOCH"]}")
 
 dsModel = resnet101(num_classes=1000)
 ptModel = resnet101(num_classes=1000)
 
 def clean_state_dict(state_dict):
-    if "state_dict" in state_dict:
-        state_dict = state_dict["state_dict"]
-    elif "module" in state_dict:
-        state_dict = state_dict["module"]
-    elif "model" in state_dict:
-        state_dict = state_dict["model"]
+    state_dict = state_dict["MODEL_STATE"]
     new_state_dict = {k.replace("model.", ""): v for k, v in state_dict.items()}
     return new_state_dict
 
@@ -49,5 +46,5 @@ ptModel.to(gpu_id)
 ptResult = inf.runValidations("pt", ptModel, createDataLoader(valid_set), gpu_id)
 ptModel.to("cpu")
 
-print(f"Inference Results DeepSpeed: {dsResult[0].item()}/{dsResult[1].item()}={dsResult[0].item()/dsResult[1].item()}")
-print(f"Inference Results PyTorch: {ptResult[0].item()}/{ptResult[1].item()}={ptResult[0].item()/ptResult[1].item()}")
+print(f"Inference Results DeepSpeed: {dsResult[0].item()}/{dsResult[1].item()}={dsResult[0].item()/dsResult[1].item()*100}")
+print(f"Inference Results PyTorch: {ptResult[0].item()}/{ptResult[1].item()}={ptResult[0].item()/ptResult[1].item()*100}")

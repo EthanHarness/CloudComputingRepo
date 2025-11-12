@@ -23,6 +23,7 @@ VALIDATION_SIZE = -1
 PERFORMANCE_FLAG = True
 MEMORY_PROFILING_FLAG = False
 ENABLE_SAVING = True
+RUN_VALIDATIONS = False
 monitor = PerformanceMonitor("DeepSpeed")
 
 def deepspeedSetup(rank: int):
@@ -64,7 +65,7 @@ class DeepSpeedTrainer:
         self.epochs_run = 0
         self.snapshot_path = snapshot_path
         self.profiler = profiler
-        if os.path.exists(snapshot_path):
+        if os.path.exists(snapshot_path) and ENABLE_SAVING:
             print("Loading snapshot")
             self._load_snapshot(snapshot_path)
             
@@ -119,8 +120,8 @@ class DeepSpeedTrainer:
         
         for epoch in range(self.epochs_run, max_epochs):
             self._run_epoch(epoch)
-            if self.gpu_id == 0 and epoch % self.save_every == 0:
-                self._save_snapshot(epoch)
+            if self.gpu_id == 0 and epoch % self.save_every == 0: self._save_snapshot(epoch)
+            if (epoch % self.save_every == 0 and RUN_VALIDATIONS): self.runValidations(epoch)
                 
             if self.profilingCheck and epoch < monitor.getProfilerSteps(): self.profiler.step()
             if self.profilingCheck and epoch == monitor.getProfilerSteps() - 1:  self.profiler.stop()
@@ -129,7 +130,7 @@ class DeepSpeedTrainer:
             monitor.printTrainTimeEnd()
             monitor.flushOutput()
 
-    def runValidations(self):
+    def runValidations(self, epoch):
         self.setMonitorStart()
         outputTensor = self.inf.runValidations("dp", self.model, self.validation_data, self.gpu_id)
         if (self.monitorCheck): monitor.printValidationTime(epoch)
