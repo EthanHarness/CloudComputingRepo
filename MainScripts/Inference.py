@@ -1,8 +1,6 @@
 import torch
 from collections import OrderedDict
 import sys
-sys.path.append('/home/emh190004')
-from CloudComputingRepo.MainScripts import Imagenet1kDataset as ds
 
 class Inference:
     def runValidations(self, modelType, model, validation_data, gpuLoc):

@@ -12,15 +12,15 @@ from torchvision.models import resnet101
 from torch.utils.checkpoint import checkpoint_sequential
 import sys
 
-sys.path.append('/home/emh190004')
-from CloudComputingRepo.MainScripts import CustomImageNet1000
-from CloudComputingRepo.MainScripts import Inference
-from CloudComputingRepo.MainScripts import PerformanceMonitor
+from Imagenet1kDataset import CustomImageNet1000
+from Inference import Inference
+from PerformanceMonitor import PerformanceMonitor
+from DeepSpeedModel import CreateCustomDeepSpeedResnetModel
 
 TRAIN_SIZE = 1000
 VALIDATION_SIZE = 100
 PERFORMANCE_FLAG = True
-MEMORY_PROFILING_FLAG = True
+MEMORY_PROFILING_FLAG = False
 ENABLE_SAVING = False
 monitor = PerformanceMonitor("DeepSpeed")
 
@@ -83,19 +83,7 @@ class DeepSpeedTrainer:
 
     def _run_batch(self, source, targets):
         model = self.model
-        layers_to_checkpoint = [model.layer1, model.layer2, model.layer3, model.layer4]
-        def run_checkpointed_model(model, x):
-            x = model.conv1(x)
-            x = model.bn1(x)
-            x = model.relu(x)
-            x = model.maxpool(x)
-            x = checkpoint_sequential(layers_to_checkpoint, segments=len(layers_to_checkpoint), input=x)
-
-            x = model.avgpool(x)
-            x = torch.flatten(x, 1)
-            x = model.fc(x)
-            return x
-        output = run_checkpointed_model(model, source)
+        output = model(source)
         self.optimizer.zero_grad()
         loss = F.cross_entropy(output, targets)
         self.model.backward(loss)
@@ -161,17 +149,13 @@ class DeepSpeedTrainer:
 def load_train_objs():
     train_set = CustomImageNet1000("train", False, TRAIN_SIZE)
     valid_set = CustomImageNet1000("validation", False, VALIDATION_SIZE)
-    model = resnet101(num_classes=train_set.getNumberOfClasses())
+    model = CreateCustomDeepSpeedResnetModel().createModel()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     return train_set, valid_set, model, optimizer
 
 
 def main():
-    import logging
-    #logging.getLogger("deepspeed").setLevel(logging.WARNING)
-    #logging.getLogger("deepspeed.utils").setLevel(logging.ERROR)
-    #logging.getLogger("deepspeed.runtime").setLevel(logging.ERROR)
     import warnings
     warnings.filterwarnings("ignore", message=".*weights_only=False.*")
     
@@ -181,7 +165,7 @@ def main():
     parser.add_argument('save_every', type=int, help='How often to save a snapshot')
     parser.add_argument('--batch_size', default=1024, type=int, help='Input batch size on each device (default: 1024)')
     parser.add_argument('--local_rank', type=int, help='Process local rank')
-    parser.add_argument('--snapshot_path', default="../model/", type=str, help='Model snapshot save location')
+    parser.add_argument('--snapshot_path', default="./model/", type=str, help='Model snapshot save location')
     args = parser.parse_args()
 
     world_size = torch.cuda.device_count()
@@ -216,7 +200,7 @@ def main():
             "partition_activations": False,
             "cpu_checkpointing": True,
             "contiguous_memory_optimization": False,
-            "number_checkpoints": 10,
+            "number_checkpoints": 4,
             "synchronize_checkpoint_boundary": True,
             "profile": False
         }

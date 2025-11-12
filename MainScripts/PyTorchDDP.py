@@ -1,5 +1,3 @@
-#Mainly sourced from https://github.com/pytorch/examples/blob/main/distributed/ddp-tutorial-series/multigpu.py
-
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
@@ -14,10 +12,10 @@ from torchvision.models import resnet101
 from torchvision.transforms import transforms
 import sys
 
-sys.path.append('/home/emh190004')
-from CloudComputingRepo.MainScripts import CustomImageNet1000
-from CloudComputingRepo.MainScripts import Inference
-from CloudComputingRepo.MainScripts import PerformanceMonitor
+from Imagenet1kDataset import CustomImageNet1000
+from Inference import Inference
+from PerformanceMonitor import PerformanceMonitor
+from PyTorchModel import CreateCustomPyTorchResnetModel
 
 #TRAIN_SIZE = 131072
 TRAIN_SIZE = 1000
@@ -157,7 +155,7 @@ class PyTorchTrainer:
 def load_train_objs():
     train_set = CustomImageNet1000("train", False, TRAIN_SIZE)
     valid_set = CustomImageNet1000("validation", False, VALIDATION_SIZE)
-    model = resnet101(num_classes=train_set.getNumberOfClasses())
+    model = CreateCustomPyTorchResnetModel().createModel()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     return train_set, valid_set, model, optimizer
