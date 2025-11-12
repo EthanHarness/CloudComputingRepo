@@ -19,10 +19,10 @@ from PyTorchModel import CreateCustomPyTorchResnetModel
 
 #TRAIN_SIZE = 131072
 TRAIN_SIZE = 131072
-VALIDATION_SIZE = 100
+VALIDATION_SIZE = -1
 PERFORMANCE_FLAG = True
-MEMORY_PROFILING_FLAG = True
-ENABLE_SAVING = False
+MEMORY_PROFILING_FLAG = False
+ENABLE_SAVING = True
 monitor = PerformanceMonitor("PyTorch")
 
 def ddp_setup(rank, world_size):
@@ -179,7 +179,6 @@ def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_s
     if (MEMORY_PROFILING_FLAG and rank == 0):
         torch.cuda.synchronize()
         monitor.exportMemory(profiler)
-        profiler = None
     destroy_process_group()
 
 

@@ -19,10 +19,10 @@ from PerformanceMonitor import PerformanceMonitor
 from DeepSpeedModel import CreateCustomDeepSpeedResnetModel
 
 TRAIN_SIZE = 131072
-VALIDATION_SIZE = 100
+VALIDATION_SIZE = -1
 PERFORMANCE_FLAG = True
-MEMORY_PROFILING_FLAG = True
-ENABLE_SAVING = False
+MEMORY_PROFILING_FLAG = False
+ENABLE_SAVING = True
 monitor = PerformanceMonitor("DeepSpeed")
 
 def deepspeedSetup(rank: int):
@@ -162,13 +162,19 @@ def main():
     parser.add_argument('save_every', type=int, help='How often to save a snapshot')
     parser.add_argument('--batch_size', default=1024, type=int, help='Input batch size on each device (default: 1024)')
     parser.add_argument('--local_rank', type=int, help='Process local rank')
-    parser.add_argument('--snapshot_path', default="./model/", type=str, help='Model snapshot save location')
+    parser.add_argument('--snapshot_path', default="../model/", type=str, help='Model snapshot save location')
     args = parser.parse_args()
 
     world_size = torch.cuda.device_count()
     save_every = args.save_every
     total_epochs = args.total_epochs
     snapshot_path = args.snapshot_path + "snapshot_DeepSpeed.pt"
+
+    print(f"WORLD_SIZE: {torch.cuda.device_count()} RANK {args.local_rank}")
+    if args.local_rank == 0:
+        print(f"Number of available GPUs: {world_size}")
+        for i in range(world_size):
+            print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
 
     monitorCheck = PERFORMANCE_FLAG and args.local_rank == 0
     setMonitorStart = lambda: monitor.setPerfStartTime() if (monitorCheck) else None
@@ -223,7 +229,6 @@ def main():
     if (MEMORY_PROFILING_FLAG and args.local_rank == 0):
         torch.cuda.synchronize()
         monitor.exportMemory(profiler)
-        profiler = None
 
 
 if __name__ == "__main__":
