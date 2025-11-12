@@ -11,21 +11,22 @@ import psutil
 from torchvision.models import resnet101
 from torch.utils.checkpoint import checkpoint_sequential
 import sys
+from datetime import timedelta
 
 from Imagenet1kDataset import CustomImageNet1000
 from Inference import Inference
 from PerformanceMonitor import PerformanceMonitor
 from DeepSpeedModel import CreateCustomDeepSpeedResnetModel
 
-TRAIN_SIZE = 1000
+TRAIN_SIZE = 131072
 VALIDATION_SIZE = 100
 PERFORMANCE_FLAG = True
-MEMORY_PROFILING_FLAG = False
+MEMORY_PROFILING_FLAG = True
 ENABLE_SAVING = False
 monitor = PerformanceMonitor("DeepSpeed")
 
 def deepspeedSetup(rank: int):
-    deepspeed.init_distributed()
+    deepspeed.init_distributed(timeout=timedelta(seconds=5400))
     get_accelerator().set_device(rank)
 
     pid = psutil.Process(os.getpid())
@@ -122,11 +123,7 @@ class DeepSpeedTrainer:
                 self._save_snapshot(epoch)
                 
             if self.profilingCheck and epoch < monitor.getProfilerSteps(): self.profiler.step()
-            if self.profilingCheck and epoch == monitor.getProfilerSteps() - 1:
-                self.profiler.stop()
-                torch.cuda.synchronize()
-                monitor.exportMemory(self.profiler)
-                self.profiler = None
+            if self.profilingCheck and epoch == monitor.getProfilerSteps() - 1:  self.profiler.stop()
             
         if (self.monitorCheck): 
             monitor.printTrainTimeEnd()
@@ -223,6 +220,10 @@ def main():
     if(monitorCheck): 
         monitor.printTotalTrainingTime()
         monitor.printEndTime()
+    if (MEMORY_PROFILING_FLAG and args.local_rank == 0):
+        torch.cuda.synchronize()
+        monitor.exportMemory(profiler)
+        profiler = None
 
 
 if __name__ == "__main__":

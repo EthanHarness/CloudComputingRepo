@@ -18,7 +18,7 @@ from PerformanceMonitor import PerformanceMonitor
 from PyTorchModel import CreateCustomPyTorchResnetModel
 
 #TRAIN_SIZE = 131072
-TRAIN_SIZE = 1000
+TRAIN_SIZE = 131072
 VALIDATION_SIZE = 100
 PERFORMANCE_FLAG = True
 MEMORY_PROFILING_FLAG = True
@@ -126,11 +126,7 @@ class PyTorchTrainer:
                 self._save_snapshot(epoch)
                 
             if self.profilingCheck and epoch < monitor.getProfilerSteps(): self.profiler.step()
-            if self.profilingCheck and epoch == monitor.getProfilerSteps() - 1:
-                self.profiler.stop()
-                torch.cuda.synchronize()
-                monitor.exportMemory(self.profiler)
-                self.profiler = None
+            if self.profilingCheck and epoch == monitor.getProfilerSteps() - 1: self.profiler.stop()
         
         if (self.monitorCheck): 
             monitor.printTrainTimeEnd()
@@ -179,6 +175,11 @@ def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_s
     if (monitorCheck): 
         monitor.printTotalTrainingTime()
         monitor.printEndTime()
+
+    if (MEMORY_PROFILING_FLAG and rank == 0):
+        torch.cuda.synchronize()
+        monitor.exportMemory(profiler)
+        profiler = None
     destroy_process_group()
 
 
