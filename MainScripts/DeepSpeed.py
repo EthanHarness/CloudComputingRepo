@@ -18,7 +18,7 @@ from Inference import Inference
 from PerformanceMonitor import PerformanceMonitor
 from DeepSpeedModel import CreateCustomDeepSpeedResnetModel
 
-TRAIN_SIZE = 131072
+TRAIN_SIZE = 1024
 VALIDATION_SIZE = -1
 PERFORMANCE_FLAG = True
 MEMORY_PROFILING_FLAG = False
@@ -108,11 +108,7 @@ class DeepSpeedTrainer:
 
     def _save_snapshot(self, epoch):
         if not ENABLE_SAVING: return
-        snapshot = {
-            "MODEL_STATE": self.model.module.state_dict(),
-            "EPOCHS_RUN": epoch,
-        }
-        torch.save(snapshot, self.snapshot_path)
+        self.model.save_checkpoint("../model", client_state={"EPOCHS_RUN": epoch}, save_latest=True)
         print(f"Epoch {epoch} | Training snapshot saved at {self.snapshot_path}")
 
     def train(self, max_epochs: int):
@@ -120,7 +116,7 @@ class DeepSpeedTrainer:
         
         for epoch in range(self.epochs_run, max_epochs):
             self._run_epoch(epoch)
-            if self.gpu_id == 0 and epoch % self.save_every == 0: self._save_snapshot(epoch)
+            if epoch % self.save_every == 0: self._save_snapshot(epoch)
             if (epoch % self.save_every == 0 and RUN_VALIDATIONS): self.runValidations(epoch)
                 
             if self.profilingCheck and epoch < monitor.getProfilerSteps(): self.profiler.step()
@@ -197,7 +193,8 @@ def main():
             "allgather_partitions": False,
             "reduce_scatter": True,
             "contiguous_gradients": False,
-            "overlap_comm": True
+            "overlap_comm": True,
+            "stage3_gather_16bit_weights_on_model_save": True,
         },
         "gradient_accumulation_steps": 1,
         "activation_checkpointing": {
