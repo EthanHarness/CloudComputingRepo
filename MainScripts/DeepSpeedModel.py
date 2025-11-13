@@ -6,15 +6,10 @@ from deepspeed.runtime.activation_checkpointing.checkpointing import checkpoint
 class CheckpointedResNet101(torch.nn.Module):
     def __init__(self, checkpoint_segments: int = 4, num_classes: int = 1000):
         super().__init__()
-        self.model = resnet101(pretrained=False)
-        self.model.fc = torch.nn.Linear(self.model.fc.in_features, num_classes)
+        base = resnet101(pretrained=False)
+        base.fc = torch.nn.Linear(base.fc.in_features, num_classes)
+        self.model = base
         self.checkpoint_segments = checkpoint_segments
-
-    def _all_blocks(self):
-        return list(self.model.layer1.children()) + \
-               list(self.model.layer2.children()) + \
-               list(self.model.layer3.children()) + \
-               list(self.model.layer4.children())
 
     def forward(self, x):
         x = self.model.conv1(x)
@@ -22,29 +17,23 @@ class CheckpointedResNet101(torch.nn.Module):
         x = self.model.relu(x)
         x = self.model.maxpool(x)
 
-        blocks = self._all_blocks()
-        num_blocks = len(blocks)
-        if self.checkpoint_segments > 0:
-            segment_size = num_blocks // self.checkpoint_segments
-        else:
-            segment_size = num_blocks
-
-        for i in range(0, num_blocks, segment_size):
-            segment = blocks[i:i + segment_size]
-
+        layers = [self.model.layer1, self.model.layer2, self.model.layer3, self.model.layer4]
+        segment_size = max(1, len(layers) // self.checkpoint_segments)
+        for i in range(0, len(layers), segment_size):
+            segment = layers[i:i + segment_size]
             def run_segment(*inputs, segment=segment):
                 out = inputs[0]
-                for block in segment:
-                    out = block(out)
+                for layer in segment:
+                    out = layer(out)
                 return out
 
             x = checkpoint(run_segment, x)
-
 
         x = self.model.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.model.fc(x)
         return x
+
 
 class CreateCustomDeepSpeedResnetModel:
     def createModel(self):

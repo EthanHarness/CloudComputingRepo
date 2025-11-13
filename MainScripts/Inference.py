@@ -53,10 +53,10 @@ class Inference:
                 prediction = torch.argmax(output, dim=1)
                 numberOfImages += labels.size(0)
                 correct_predictions += (prediction == labels).sum().item()
+        model.train()
+
         return torch.tensor([correct_predictions, numberOfImages])
 
-        if path == "":
-            model.train()
             
 def preparePyTorchDataloader(data, batch_size):
     from torch.utils.data import DataLoader
