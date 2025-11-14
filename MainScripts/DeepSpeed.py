@@ -8,17 +8,19 @@ import torch.distributed as dist
 import os
 import psutil
 from datetime import timedelta
+import random
 
 from Imagenet1kDataset import CustomImageNet1000
 from Inference import Inference
 from PerformanceMonitor import PerformanceMonitor
 from ResnetModel import ActivationCheckpointingResnetModel
 
-TRAIN_SIZE = 131072
+#TRAIN_SIZE = 131072
+TRAIN_SIZE = 2048
 VALIDATION_SIZE = -1
 PERFORMANCE_FLAG = True
 MEMORY_PROFILING_FLAG = False
-ENABLE_SAVING = True
+ENABLE_SAVING = False
 RUN_VALIDATIONS = True
 monitor = PerformanceMonitor("DeepSpeed")
 
@@ -208,6 +210,16 @@ def main():
         optimizer=optimizer,
         config_params=ds_config
     )
+    
+    if args.local_rank == 0:
+        objList = [random.randint(1, 100000000), random.randint(1, 100000000)]
+    else:
+        objList = [None, None]
+    torch.distributed.broadcast_object_list(objList, src=0)
+    seed1 = objList[0]
+    seed2 = objList[1]
+    dataset.setSeed(seed1)
+    validation_data.setSeed(seed2)
 
     trainer = DeepSpeedTrainer(modelEngine, trainLoader, validation_data, optimizer, args.local_rank, save_every, snapshot_path, args.batch_size, profiler)
     

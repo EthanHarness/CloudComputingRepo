@@ -7,6 +7,7 @@ from torch.distributed import init_process_group, destroy_process_group
 import torch.distributed as dist
 import os
 import psutil
+import random
 
 from Imagenet1kDataset import CustomImageNet1000
 from Inference import Inference
@@ -159,6 +160,16 @@ def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_s
     if (monitorCheck): monitor.printStartTime()
     ddp_setup(rank, world_size)
     dataset, validDataset, model, optimizer = load_train_objs()
+    
+    if args.local_rank == 0:
+        objList = [random.randint(1, 100000000), random.randint(1, 100000000)]
+    else:
+        objList = [None, None]
+    torch.distributed.broadcast_object_list(objList, src=0)
+    seed1 = objList[0]
+    seed2 = objList[1]
+    dataset.setSeed(seed1)
+    validDataset.setSeed(seed2)
     
     snapshot_path += "snapshot_PyTorchDDP.pt"
     profiler = None
