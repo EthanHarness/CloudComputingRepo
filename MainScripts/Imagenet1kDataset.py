@@ -1,4 +1,63 @@
 from datasets import load_dataset
+from torch.utils.data import Dataset, DataLoader
+from torchvision.transforms import transforms
+import torch.distributed as dist
+import torch
+import os
+from dotenv import load_dotenv
+
+#This approach is more memory concious but has performance issues
+#Spends a lot of time doing IO 
+class CustomImageNet1000(Dataset):
+    def __init__(self, dataType, force_recache=False, size=None):
+        self.dataType = dataType
+        if size == -1: size = None
+        if dataType == "train" and size is None:
+            self.length = 1281167
+        elif dataType == "validation" and size is None:
+            self.length = 50000
+        elif dataType == "test" and size is None:
+            self.length = 10000
+        else:
+            self.length = size
+        self.transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor()
+        ])
+        self.force_recache = force_recache
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, idx):
+        cache_path = os.path.expanduser(f"~/scratch/processedDataset/sample_{self.dataType}_{idx}.pt")
+        if os.path.exists(cache_path) and not self.force_recache:
+            cache = torch.load(cache_path)
+            return cache["image"], cache["label"]
+
+        splitString = f"{self.dataType}" if self.length is None else f"{self.dataType}[:{self.length}]"
+        self.dataList = load_dataset("ILSVRC/imagenet-1k", split=splitString, token=os.getenv("token"))
+        item = self.dataList[idx]
+        image = item["image"]
+        label = item["label"]
+
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+            
+        image = self.transform(image)
+        torch.save({"image": image, "label": label}, cache_path)
+        return image,label
+    
+    def getNumberOfClasses(self):
+        return 1000
+
+ 
+#Need to reduce the memory footprint of this for large datasets. 
+#Initial IO is also very taxing
+#Currently, every one loads all data into datalist. Fine for small datasizes, but for big datasets on multiple GPUs this gets very expensive
+#Consider a caching approach where only a subset of the data is ever in datalist and we dynamically move data in and out for needs.     
+"""
+from datasets import load_dataset
 from torch.utils.data import Dataset
 from torchvision.transforms import transforms
 import torch
@@ -72,4 +131,4 @@ class CustomImageNet1000(Dataset):
     def getNumberOfClasses(self):
         return 1000
 
-    
+"""
