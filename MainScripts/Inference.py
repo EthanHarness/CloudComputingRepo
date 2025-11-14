@@ -1,6 +1,5 @@
 import torch
 from collections import OrderedDict
-import sys
 
 class Inference:
     def runValidations(self, modelType, model, validation_data, gpuLoc):
@@ -8,10 +7,6 @@ class Inference:
         if modelType == "deepspeed": path = "../model/snapshot_DeepSpeed.pt"
         elif modelType == "pytorch": path = "../model/snapshot_PyTorchDDP.pt"
         else: path = ""
-        
-        if modelType == "pytorch":
-            #Need to pass in batch_size somehow for this case. Not currently working or used though
-            validation_data = preparePyTorchDataloader(validation_data, batch_size)
 
         if path != "":
 

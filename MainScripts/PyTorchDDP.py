@@ -1,29 +1,24 @@
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 import torch.distributed as dist
 import os
 import psutil
-from torchvision.models import resnet101
-from torchvision.transforms import transforms
-import sys
 
 from Imagenet1kDataset import CustomImageNet1000
 from Inference import Inference
 from PerformanceMonitor import PerformanceMonitor
-from PyTorchModel import CreateCustomPyTorchResnetModel
+from ResnetModel import ActivationCheckpointingResnetModel
 
 TRAIN_SIZE = 131072
-#TRAIN_SIZE = 16384
 VALIDATION_SIZE = -1
 PERFORMANCE_FLAG = True
 MEMORY_PROFILING_FLAG = False
 ENABLE_SAVING = True
-RUN_VALIDATIONS = False
+RUN_VALIDATIONS = True
 monitor = PerformanceMonitor("PyTorch")
 
 def ddp_setup(rank, world_size):
@@ -40,7 +35,6 @@ def prepare_dataloader(dataset: Dataset, batch_size: int):
         dataset,
         batch_size=batch_size,
         pin_memory=True,
-        shuffle=False,
         sampler=DistributedSampler(dataset)
     )
 
@@ -110,7 +104,6 @@ class PyTorchTrainer:
             monitor.flushOutput()
 
     def _save_snapshot(self, epoch):
-        if not ENABLE_SAVING: return
         snapshot = {
             "MODEL_STATE": self.model.module.state_dict(),
             "EPOCHS_RUN": epoch,
@@ -123,12 +116,13 @@ class PyTorchTrainer:
         
         for epoch in range(self.epochs_run, max_epochs):
             self._run_epoch(epoch)
-            if self.gpu_id == 0 and epoch % self.save_every == 0: self._save_snapshot(epoch)
+            if ENABLE_SAVING and self.gpu_id == 0 and epoch % self.save_every == 0: self._save_snapshot(epoch)
             if (epoch % self.save_every == 0 and RUN_VALIDATIONS): self.runValidations(epoch)
                 
             if self.profilingCheck and epoch < monitor.getProfilerSteps(): self.profiler.step()
             if self.profilingCheck and epoch == monitor.getProfilerSteps() - 1: self.profiler.stop()
         
+        if ENABLE_SAVING and self.gpu_id == 0 and epoch % self.save_every != 0: self._save_snapshot(max_epochs-1)
         if (self.monitorCheck): 
             monitor.printTrainTimeEnd()
             monitor.flushOutput()
@@ -143,7 +137,7 @@ class PyTorchTrainer:
             gathered_data = [torch.zeros_like(outputTensor) for _ in range(dist.get_world_size())]
             dist.gather(outputTensor, gather_list=gathered_data, dst=0)
             gathered_data = torch.sum(torch.stack(gathered_data, dim=0), dim=0)
-            print(f"Inference Results: {gathered_data[0].item()}/{gathered_data[1].item()}={gathered_data[0].item()/gathered_data[1].item()}")
+            print(f"Inference Results: {gathered_data[0].item()}/{gathered_data[1].item()}={gathered_data[0].item()/gathered_data[1].item()*100}%")
         else:
             dist.gather(outputTensor, dst=0)
             
@@ -152,8 +146,8 @@ class PyTorchTrainer:
 def load_train_objs():
     train_set = CustomImageNet1000("train", False, TRAIN_SIZE)
     valid_set = CustomImageNet1000("validation", False, VALIDATION_SIZE)
-    model = CreateCustomPyTorchResnetModel().createModel()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    model = ActivationCheckpointingResnetModel().createModel()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
     return train_set, valid_set, model, optimizer
 

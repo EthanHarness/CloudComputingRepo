@@ -1,9 +1,7 @@
 import time
-from torch.profiler import profile, schedule, tensorboard_trace_handler, ProfilerActivity
 import sys
 import torch
 import os
-import shutil
 from datetime import datetime
 
 class PerformanceMonitor:
