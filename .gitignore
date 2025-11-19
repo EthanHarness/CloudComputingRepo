@@ -5,8 +5,11 @@ runs
 model
 .env
 *.sh
-PyTorchDDP.[0-9]*
-DeepSpeed.[0-9]*
+PyTorchDDP2.[0-9]*
+PyTorchDDP4.[0-9]*
+DeepSpeed2.[0-9]*
+DeepSpeed4.[0-9]*
+Control.[0-9]*
 ValidationsResults.[0-9]*
 *.log
 Test.*

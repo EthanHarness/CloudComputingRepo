@@ -10,6 +10,13 @@ class PerformanceMonitor:
         self.startString = f"MONITOR_{type}"
         self.memorySnapshotPath = os.path.expanduser(f"~/scratch/memorySnapshots/{type}/")
         self.profilerNumberOfSteps = 0
+        self.type = type
+
+    def setGPUs(self, gpuAmount):
+        self.gpus = gpuAmount
+        self.memorySnapshotPath = os.path.expanduser(f"~/scratch/memorySnapshots/{self.type}{gpuAmount}/")
+    def getGPUs(self):
+        return self.gpus
     
     #As long as start time and elapsed are called, should work with each other. 
     def setPerfStartTime(self): self.timers.append(time.perf_counter())
@@ -41,11 +48,18 @@ class PerformanceMonitor:
         return profiler
     def exportMemory(self, profiler):
         formattedDT = datetime.now().strftime("%B-%d-%Y")
+        numericalTime = datetime.now().strftime("%H:%M:%S")
+        print(f"Exporting Memory HTML {numericalTime} ...")
         profiler.export_memory_timeline(f"{self.memorySnapshotPath}/{formattedDT}-Memory.html")
+        numericalTime = datetime.now().strftime("%H:%M:%S")
+        print(f"Exporting Memory JSON {numericalTime} ...")
+        profiler.export_memory_timeline(f"{self.memorySnapshotPath}/{formattedDT}-MemoryJSON.raw.json.gz")
 
         
     def printStartTime(self): print(f"{self.startString}-START-TIME: {time.ctime()}")
     def printEndTime(self): print(f"{self.startString}-END-TIME: {time.ctime()}")
     def printTrainTimeStart(self): print(f"{self.startString}-TRAIN-START-TIME: {time.ctime()}")
     def printTrainTimeEnd(self): print(f"{self.startString}-TRAIN-END-TIME: {time.ctime()}")
+    def printTrainSeed(self, seed): print(f"{self.startString}-TRAIN-SEED-{seed}")
+    def printValidSeed(self, seed): print(f"{self.startString}-VALIDATION-SEED-{seed}")
     

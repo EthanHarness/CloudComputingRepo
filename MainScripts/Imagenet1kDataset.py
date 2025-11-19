@@ -30,7 +30,6 @@ class CustomImageNet1000(Dataset):
             transforms.ToTensor()
         ])
         self.force_recache = force_recache
-        print(f"Type: {self.dataType} Space Size {self.space}")
         rng = np.random.default_rng(seed=0)
         self.numbers = rng.choice(self.space, size=self.length, replace=False).tolist()
 

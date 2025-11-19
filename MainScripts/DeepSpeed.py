@@ -16,12 +16,15 @@ from PerformanceMonitor import PerformanceMonitor
 from ResnetModel import ActivationCheckpointingResnetModel
 
 #TRAIN_SIZE = 131072
-TRAIN_SIZE = 2048
+TRAIN_SIZE = 1024
 VALIDATION_SIZE = -1
 PERFORMANCE_FLAG = True
-MEMORY_PROFILING_FLAG = False
+MEMORY_PROFILING_FLAG = True
 ENABLE_SAVING = False
-RUN_VALIDATIONS = True
+RUN_VALIDATIONS = False
+ENABLE_FIXED_SEED = True
+FIXED_SEED_TRAIN = 38850191
+FIXED_SEED_VALID = 10634089
 monitor = PerformanceMonitor("DeepSpeed")
 
 def deepspeedSetup(rank: int):
@@ -103,7 +106,7 @@ class DeepSpeedTrainer:
             
 
     def _save_snapshot(self, epoch):
-        self.model.save_checkpoint("../model", client_state={"EPOCHS_RUN": epoch}, save_latest=True)
+        self.model.save_checkpoint(f"../model/DeepSpeed{monitor.getGPUs()}", client_state={"EPOCHS_RUN": epoch}, save_latest=True)
         if self.gpu_id == 0: print(f"Epoch {epoch} | Training snapshot saved")
 
     def train(self, max_epochs: int):
@@ -159,6 +162,7 @@ def main():
     args = parser.parse_args()
 
     world_size = torch.cuda.device_count()
+    monitor.setGPUs(world_size)
     save_every = args.save_every
     total_epochs = args.total_epochs
     snapshot_path = args.snapshot_path + "snapshot_DeepSpeed.pt"
@@ -211,15 +215,21 @@ def main():
         config_params=ds_config
     )
     
-    if args.local_rank == 0:
-        objList = [random.randint(1, 100000000), random.randint(1, 100000000)]
+    if ENABLE_FIXED_SEED:
+        seed1 = FIXED_SEED_TRAIN
+        seed2 = FIXED_SEED_VALID
     else:
-        objList = [None, None]
-    torch.distributed.broadcast_object_list(objList, src=0)
-    seed1 = objList[0]
-    seed2 = objList[1]
+        if args.local_rank == 0:
+            objList = [random.randint(1, 100000000), random.randint(1, 100000000)]
+        else:
+            objList = [None, None]
+        torch.distributed.broadcast_object_list(objList, src=0)
+        seed1 = objList[0]
+        seed2 = objList[1]
     dataset.setSeed(seed1)
     validation_data.setSeed(seed2)
+    monitor.printTrainSeed(seed1)
+    monitor.printValidSeed(seed2)
 
     trainer = DeepSpeedTrainer(modelEngine, trainLoader, validation_data, optimizer, args.local_rank, save_every, snapshot_path, args.batch_size, profiler)
     
