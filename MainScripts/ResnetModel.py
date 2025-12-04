@@ -25,7 +25,7 @@ class CheckpointedResNet101(torch.nn.Module):
         return x
 
 
-class CreateCustomPyTorchResnetModel:
+class ActivationCheckpointingResnetModel:
     def createModel(self):
         return CheckpointedResNet101()
 

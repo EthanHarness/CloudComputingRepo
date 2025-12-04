@@ -1,10 +1,6 @@
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from torch.utils.data.distributed import DistributedSampler
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import init_process_group, destroy_process_group
-import torch.distributed as dist
 import os
 import psutil
 import random
@@ -14,24 +10,18 @@ from Inference import Inference
 from PerformanceMonitor import PerformanceMonitor
 from ResnetModel import ActivationCheckpointingResnetModel
 
-#TRAIN_SIZE = 131072
 TRAIN_SIZE = 131072
 VALIDATION_SIZE = -1
 PERFORMANCE_FLAG = True
 MEMORY_PROFILING_FLAG = False
-ENABLE_SAVING = True
+ENABLE_SAVING = False
 RUN_VALIDATIONS = True
 ENABLE_FIXED_SEED = True
 FIXED_SEED_TRAIN = 38850191
 FIXED_SEED_VALID = 10634089
-monitor = PerformanceMonitor("PyTorch")
+monitor = PerformanceMonitor("Control")
 
-def ddp_setup(rank, world_size):
-    rank = int(os.environ["RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
-    torch.cuda.set_device(rank)
-    init_process_group(backend="nccl", rank=rank, world_size=world_size)
-
+def setup():
     pid = psutil.Process(os.getpid())
     print(f"Process {pid}")
     
@@ -39,8 +29,7 @@ def prepare_dataloader(dataset: Dataset, batch_size: int):
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        pin_memory=True,
-        sampler=DistributedSampler(dataset)
+        pin_memory=True
     )
 
 class PyTorchTrainer:
@@ -69,8 +58,6 @@ class PyTorchTrainer:
         if os.path.exists(snapshot_path) and ENABLE_SAVING:
             print("Loading snapshot")
             self._load_snapshot(snapshot_path)
-
-        self.model = DDP(self.model, device_ids=[gpu_id])
         
         self.monitorCheck = PERFORMANCE_FLAG and self.gpu_id == 0
         self.profilingCheck = MEMORY_PROFILING_FLAG and self.gpu_id == 0
@@ -97,7 +84,6 @@ class PyTorchTrainer:
         
         b_sz = len(next(iter(self.train_data))[0])
         print(f"[GPU{self.gpu_id}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_data)}")
-        self.train_data.sampler.set_epoch(epoch)
         for batchIndex, (source, targets) in enumerate(self.train_data):
             source = source.to(self.gpu_id)
             targets = targets.to(self.gpu_id)
@@ -110,7 +96,7 @@ class PyTorchTrainer:
 
     def _save_snapshot(self, epoch):
         snapshot = {
-            "MODEL_STATE": self.model.module.state_dict(),
+            "MODEL_STATE": self.model.state_dict(),
             "EPOCHS_RUN": epoch,
         }
         torch.save(snapshot, self.snapshot_path)
@@ -134,17 +120,11 @@ class PyTorchTrainer:
             
     def runValidations(self, epoch):
         self.setMonitorStart()
-        outputTensor = self.inf.runValidations("pt", self.model, self.validation_data, self.gpu_id)
+        outputTensor = self.inf.runValidations("control", self.model, self.validation_data, self.gpu_id)
         if (self.monitorCheck): monitor.printValidationTime(epoch)
-        outputTensor = outputTensor.to(f'cuda:{self.gpu_id}')
         
         if self.gpu_id == 0:
-            gathered_data = [torch.zeros_like(outputTensor) for _ in range(dist.get_world_size())]
-            dist.gather(outputTensor, gather_list=gathered_data, dst=0)
-            gathered_data = torch.sum(torch.stack(gathered_data, dim=0), dim=0)
-            print(f"Inference Results: {gathered_data[0].item()}/{gathered_data[1].item()}={gathered_data[0].item()/gathered_data[1].item()*100}%")
-        else:
-            dist.gather(outputTensor, dst=0)
+            print(f"Inference Results: {outputTensor[0].item()}/{outputTensor[1].item()}={outputTensor[0].item()/outputTensor[1].item()*100}%")
             
     
 
@@ -162,18 +142,14 @@ def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_s
     setMonitorStart = lambda: monitor.setPerfStartTime() if (monitorCheck) else None
     
     if (monitorCheck): monitor.printStartTime()
-    ddp_setup(rank, world_size)
+    setup()
     dataset, validDataset, model, optimizer = load_train_objs()
     
     if ENABLE_FIXED_SEED:
         seed1 = FIXED_SEED_TRAIN
         seed2 = FIXED_SEED_VALID
     else:
-        if args.local_rank == 0:
-            objList = [random.randint(1, 100000000), random.randint(1, 100000000)]
-        else:
-            objList = [None, None]
-        torch.distributed.broadcast_object_list(objList, src=0)
+        objList = [random.randint(1, 100000000), random.randint(1, 100000000)]
         seed1 = objList[0]
         seed2 = objList[1]
     dataset.setSeed(seed1)
@@ -181,7 +157,7 @@ def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_s
     monitor.printTrainSeed(seed1)
     monitor.printValidSeed(seed2)
     
-    snapshot_path += f"snapshot_PyTorchDDP{world_size}.pt"
+    snapshot_path += "snapshot_control.pt"
     profiler = None
     if (MEMORY_PROFILING_FLAG): profiler = monitor.createProfiler(rank)
     trainer = PyTorchTrainer(model, dataset, validDataset, optimizer, rank, save_every, snapshot_path, batch_size, profiler)
@@ -195,14 +171,10 @@ def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_s
     if (MEMORY_PROFILING_FLAG and rank == 0):
         torch.cuda.synchronize()
         monitor.exportMemory(profiler)
-    destroy_process_group()
 
 
 if __name__ == "__main__":
-    rank = int(os.environ["RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
-    monitor.setGPUs(world_size)
-
+    world_size = torch.cuda.device_count()
     import argparse
     parser = argparse.ArgumentParser(description='simple distributed training job')
     parser.add_argument('total_epochs', type=int, help='Total epochs to train the model')
@@ -210,9 +182,9 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', default=1024, type=int, help='Input batch size on each device (default: 1024)')
     args = parser.parse_args()
     
-    print(f"WORLD_SIZE: {torch.cuda.device_count()} RANK {rank}")
-    if rank == 0:
-        print(f"Number of available GPUs: {world_size}")
-        for i in range(world_size):
-            print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
-    main(rank, world_size, args.save_every, args.total_epochs, args.batch_size)
+    print(f"WORLD_SIZE: {torch.cuda.device_count()} RANK {0}")
+    print(f"Number of available GPUs: {world_size}")
+    monitor.setGPUs(1)
+    for i in range(world_size):
+        print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+    main(0, world_size, args.save_every, args.total_epochs, args.batch_size)
