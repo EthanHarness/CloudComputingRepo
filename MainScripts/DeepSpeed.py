@@ -6,6 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
 import os
+import shutil
 import psutil
 from datetime import timedelta
 import random
@@ -15,13 +16,12 @@ from Inference import Inference
 from PerformanceMonitor import PerformanceMonitor
 from ResnetModel import ActivationCheckpointingResnetModel
 
-#TRAIN_SIZE = 131072
-TRAIN_SIZE = 1024
+TRAIN_SIZE = 131072
 VALIDATION_SIZE = -1
 PERFORMANCE_FLAG = True
-MEMORY_PROFILING_FLAG = True
-ENABLE_SAVING = False
-RUN_VALIDATIONS = False
+MEMORY_PROFILING_FLAG = False
+ENABLE_SAVING = True
+RUN_VALIDATIONS = True
 ENABLE_FIXED_SEED = True
 FIXED_SEED_TRAIN = 38850191
 FIXED_SEED_VALID = 10634089
@@ -107,7 +107,30 @@ class DeepSpeedTrainer:
 
     def _save_snapshot(self, epoch):
         self.model.save_checkpoint(f"../model/DeepSpeed{monitor.getGPUs()}", client_state={"EPOCHS_RUN": epoch}, save_latest=True)
-        if self.gpu_id == 0: print(f"Epoch {epoch} | Training snapshot saved")
+        if self.gpu_id == 0: 
+            self.deleteOtherSnap()
+            print(f"Epoch {epoch} | Training snapshot saved")
+            
+
+    def deleteOtherSnap(self):
+        path = f"../model/DeepSpeed{monitor.getGPUs()}"
+        with open(f"{path}/latest", "r") as f:
+            firstLine = f.readline().strip()
+        
+        print(firstLine)
+        if firstLine == "" or firstLine == None:
+            return
+
+        for item in os.listdir(path):
+            print(item)
+            fullPath = os.path.join(path, item)
+            if os.path.isdir(fullPath) and item != firstLine:
+                try:
+                    shutil.rmtree(fullPath)
+                    print(f"Folder '{fullPath}' deleted successfully.")
+                except OSError as e:
+                    print(f"Error deleting folder '{fullPath}': {e}")
+
 
     def train(self, max_epochs: int):
         if (self.monitorCheck): monitor.printTrainTimeStart()

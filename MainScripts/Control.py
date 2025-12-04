@@ -10,12 +10,12 @@ from Inference import Inference
 from PerformanceMonitor import PerformanceMonitor
 from ResnetModel import ActivationCheckpointingResnetModel
 
-TRAIN_SIZE = 1024
+TRAIN_SIZE = 131072
 VALIDATION_SIZE = -1
 PERFORMANCE_FLAG = True
-MEMORY_PROFILING_FLAG = True
+MEMORY_PROFILING_FLAG = False
 ENABLE_SAVING = False
-RUN_VALIDATIONS = False
+RUN_VALIDATIONS = True
 ENABLE_FIXED_SEED = True
 FIXED_SEED_TRAIN = 38850191
 FIXED_SEED_VALID = 10634089
